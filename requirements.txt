@@ -1,0 +1,7 @@
+streamlit>=1.38
+openai>=1.45
+pydantic>=2.8
+python-dotenv>=1.0
+numpy>=1.26
+pandas>=2.2
+regex>=2024.9.11
