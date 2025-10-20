@@ -56,74 +56,142 @@ st.sidebar.subheader("Database & Logs")
 if st.sidebar.button("Refresh Tables"):
     st.rerun()
 
-# Main input
-with st.container(border=True):
-    st.subheader("Try an input")
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        user_text = st.text_input(
-            "User message",
-            placeholder="e.g., Could you check the status of ticket 650932?",
-        )
-        customer_name = st.text_input("Customer name (optional)", placeholder="Jane Doe")
-    with col2:
-        st.markdown("\n")
-        go = st.button("Run", type="primary", use_container_width=True)
+# --- Try an Input (replace/adjust your existing block) ---
 
-# Process
-if go and user_text.strip():
-    clf = ClassifierAgent(use_llm=use_llm)
-    label = clf.classify(user_text)
+st.markdown("### Try an Input")
 
-    feedback = FeedbackHandler()
-    query = QueryHandler()
-
-    if label == "positive_feedback":
-        reply = feedback.handle_positive(customer_name or None)
-        route = "Classifier → Feedback(Positive)"
-    elif label == "negative_feedback":
-        reply = feedback.handle_negative(customer_name or None, description=user_text)
-        route = "Classifier → Feedback(Negative)"
-    else:
-        reply = query.handle(user_text)
-        route = "Classifier → QueryHandler"
-
-    st.session_state.history.insert(0, {
-        "input": user_text,
-        "customer": customer_name,
-        "route": label,
-        "reply": reply,
-    })
-
-# Layout: left = conversation, right = DB & logs
-left, right = st.columns([2, 2])
-
-with left:
-    st.subheader("Routing & Responses")
-    if st.session_state.history:
-        for i, h in enumerate(st.session_state.history[:20]):
-            with st.expander(f"#{i+1} — {h['route']}"):
-                st.markdown(f"**User:** {h['input']}")
-                if h.get("customer"):
-                    st.markdown(f"**Customer:** {h['customer']}")
-                st.markdown(f"**Response:** {h['reply']}")
-    else:
-        st.info("No interactions yet. Try a sample like: ‘My debit card replacement still hasn’t arrived.’")
-
-with right:
-    st.subheader("🎫 Support Tickets (latest 100)")
-    tickets = list_tickets(limit=100)
-    st.dataframe(pd.DataFrame(tickets))
-
-    st.subheader("🪵 Logs (latest 200)")
-    logs = list_logs(limit=200)
-    st.dataframe(pd.DataFrame(logs))
-
-st.divider()
-st.markdown(
-    "**Notes**: \n"
-    "• Positive feedback returns a friendly one-liner. \n"
-    "• Negative feedback creates a 6-digit ticket and acknowledges it. \n"
-    "• Queries extract a ticket number and report status. \n"
-    "• Evaluation compares classifier predictions vs. expected labels."
+user_text = st.text_area(
+    "Enter your question or feedback",
+    placeholder="e.g., Thanks for resolving my credit card issue.",
+    key="try_text",
 )
+
+customer_name = st.text_input(
+    "Your name",
+    placeholder="e.g., Alex Chen",
+    key="try_name",
+)
+
+has_ticket_checkbox = st.checkbox(
+    "I already have a 6-digit ticket ID",
+    value=False,
+    key="has_ticket_checkbox",
+)
+
+ticket_id_input = None
+if has_ticket_checkbox:
+    ticket_id_input = st.text_input(
+        "Ticket ID (6 digits)",
+        placeholder="e.g., 650932",
+        key="ticket_id_input",
+        help="If you know your ticket ID, enter it here."
+    )
+
+run_btn = st.button("Run", key="btn_try")
+
+if run_btn:
+    if not user_text.strip():
+        st.warning("Please enter a question or feedback.")
+        st.stop()
+
+    # Imports (kept local to avoid circulars during module import)
+    from agents.classifier import ClassifierAgent
+    from agents.feedback import FeedbackHandler
+    from agents.query import QueryHandler
+    from core.db import init_db, find_open_ticket_by_customer, insert_ticket, log_event
+    from core.utils import generate_ticket_number
+
+    conn = init_db()
+    classifier = ClassifierAgent(use_llm=False)  # or wire to your sidebar toggle
+    feedback_agent = FeedbackHandler(conn=conn)
+    query_agent = QueryHandler(conn=conn)
+
+    # 1) Classify first (so we know whether we should ever create a ticket)
+    try:
+        label = classifier.classify(user_text)
+    except Exception as e:
+        st.error(f"Classifier error: {e}")
+        label = "query"  # safe fallback
+
+    st.write("**Classification:**", label)
+
+    # 2) Normalize a working ticket_id based on the checkbox/name logic
+    working_ticket_id = None
+
+    if has_ticket_checkbox and ticket_id_input:
+        # User explicitly provided a ticket id; trust this path
+        working_ticket_id = ticket_id_input.strip()
+    else:
+        # User did NOT provide a ticket id.
+        # If there is an open ticket under this name, keep using it.
+        existing = find_open_ticket_by_customer(conn, customer_name) if customer_name.strip() else None
+        if existing:
+            working_ticket_id, _existing_status = existing
+        else:
+            # No open ticket under that name.
+            # Only create a ticket if it's NOT purely positive feedback.
+            if label in ("negative_feedback", "query"):
+                # If negative feedback, we prefer to create via FeedbackHandler to reuse your logic & logs.
+                if label == "negative_feedback":
+                    # This will create a new ticket and return the empathetic message
+                    resp = feedback_agent.handle_negative(customer_name=customer_name, description=user_text)
+                    # Extract the ticket id we just created (your FeedbackHandler already knows it)
+                    # If your handler doesn't return the id, we can cheaply re-fetch the most recent:
+                    lookup_new = find_open_ticket_by_customer(conn, customer_name)
+                    if lookup_new:
+                        working_ticket_id = lookup_new[0]
+                    st.success(resp)
+                    log_event(conn, level="INFO", agent="Orchestrator", event="negative_feedback_new_ticket",
+                              details={"customer_name": customer_name, "ticket_id": working_ticket_id})
+                    st.stop()  # We’ve already responded with the negative-feedback path.
+                else:
+                    # label == "query": create a new ticket so we have something to check
+                    new_tid = generate_ticket_number()
+                    insert_ticket(conn,
+                                  ticket_id=new_tid,
+                                  customer_name=customer_name or "Unknown",
+                                  description=user_text,
+                                  status="Open")
+                    working_ticket_id = new_tid
+                    log_event(conn, level="INFO", agent="Orchestrator", event="query_new_ticket_created",
+                              details={"customer_name": customer_name, "ticket_id": working_ticket_id})
+
+    # 3) Route to the appropriate downstream agent
+    if label == "positive_feedback":
+        # Never create a new ticket for purely positive feedback
+        resp = feedback_agent.handle_positive(customer_name or "Customer")
+        st.success(resp)
+        log_event(conn, level="INFO", agent="FeedbackHandler", event="positive_ack",
+                  details={"customer_name": customer_name})
+    elif label == "negative_feedback":
+        # If we reached here, either:
+        #  - user supplied an existing ticket, or
+        #  - we found an existing open ticket by name.
+        if working_ticket_id:
+            msg = (
+                f"We apologize for the inconvenience, {customer_name or 'Customer'}. "
+                f"Your existing ticket #{working_ticket_id} is active—our team will follow up shortly."
+            )
+            st.info(msg)
+            log_event(conn, level="INFO", agent="Orchestrator", event="negative_feedback_existing_ticket",
+                      details={"customer_name": customer_name, "ticket_id": working_ticket_id})
+        else:
+            # Defensive fallback (shouldn’t happen due to earlier negative flow)
+            resp = feedback_agent.handle_negative(customer_name=customer_name, description=user_text)
+            st.success(resp)
+    else:
+        # label == "query"
+        # Ensure the QueryHandler sees a ticket id:
+        routed_text = user_text
+        if working_ticket_id and ("ticket" not in user_text.lower()):
+            routed_text = f"{user_text} (ticket {working_ticket_id})"
+
+        status_resp = query_agent.handle(routed_text)
+
+        # If we created a brand-new ticket for a query, append clarity
+        if has_ticket_checkbox is False and working_ticket_id:
+            status_resp += f"\n\nA ticket #{working_ticket_id} is now on file for this request."
+
+        st.info(status_resp)
+        log_event(conn, level="INFO", agent="QueryHandler", event="query_routed",
+                  details={"customer_name": customer_name, "ticket_id": working_ticket_id})
