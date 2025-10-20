@@ -7,6 +7,39 @@ from agents.feedback import FeedbackHandler
 from agents.query import QueryHandler
 from core.db import get_conn, find_open_ticket_by_customer, insert_ticket, log_event
 
+tickets_tab, logs_tab = st.tabs(["📬 Tickets", "🪵 Logs"])
+conn = get_conn()
+
+with tickets_tab:
+    c1, c2 = st.columns([1, 5])
+    with c1:
+        if st.button("Refresh", key="btn_refresh_tickets"):
+            pass
+    try:
+        tdf = pd.DataFrame(list_tickets(conn, limit=200))
+        if tdf.empty:
+            st.info("No tickets yet.")
+        else:
+            preferred_cols = [c for c in ["created_at","ticket_id","customer_name","status","description"] if c in tdf.columns]
+            st.dataframe(tdf[preferred_cols] if preferred_cols else tdf, use_container_width=True, height=520)
+    except Exception as e:
+        st.error(f"Tickets error: {e}")
+
+with logs_tab:
+    c1, c2 = st.columns([1, 5])
+    with c1:
+        if st.button("Refresh", key="btn_refresh_logs"):
+            pass
+    try:
+        ldf = pd.DataFrame(list_logs(conn, limit=200))
+        if ldf.empty:
+            st.info("No logs yet.")
+        else:
+            preferred_cols = [c for c in ["ts","level","agent","event","details"] if c in ldf.columns]
+            st.dataframe(ldf[preferred_cols] if preferred_cols else ldf, use_container_width=True, height=520)
+    except Exception as e:
+        st.error(f"Logs error: {e}")
+        
 # --- Evaluation (QA & Routing Accuracy) ---
 with st.expander("Evaluation (QA & Routing Accuracy)", expanded=False):
     use_llm_eval = st.checkbox(
