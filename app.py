@@ -5,7 +5,17 @@ import pandas as pd
 from agents.classifier import ClassifierAgent
 from agents.feedback import FeedbackHandler
 from agents.query import QueryHandler
-from core.db import get_conn, find_open_ticket_by_customer, insert_ticket, log_event
+# ⬇️ add the two imports here
+from core.db import (
+    get_conn,
+    find_open_ticket_by_customer,
+    insert_ticket,
+    log_event,
+    list_tickets,          # NEW
+    list_logs,             # NEW
+)
+
+st.set_page_config(page_title="Banking Support — Multi-Agent", page_icon="💬", layout="wide")
 
 tickets_tab, logs_tab = st.tabs(["📬 Tickets", "🪵 Logs"])
 conn = get_conn()
@@ -71,8 +81,6 @@ with st.expander("Evaluation (QA & Routing Accuracy)", expanded=False):
             cm = pd.crosstab(df["expected"], df["predicted"], dropna=False)
             st.markdown("**Confusion Matrix (Expected vs. Predicted)**")
             st.dataframe(cm, use_container_width=True)
-
-st.set_page_config(page_title="Banking Support — Multi-Agent", page_icon="💬", layout="wide")
 
 if "history" not in st.session_state:
     st.session_state.history = []
