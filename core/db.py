@@ -38,6 +38,27 @@ def init_db() -> None:
         conn.executescript(SCHEMA)
     conn.close()
 
+def find_open_ticket_by_customer(conn, customer_name: str):
+    """
+    Return the most recent open/in-progress ticket (ticket_id, status) for a customer name,
+    or None if none exists.
+    """
+    if not customer_name:
+        return None
+
+    q = """
+    SELECT ticket_id, status
+    FROM support_tickets
+    WHERE customer_name = ?
+      AND status IN ('Open', 'In-Progress')
+    ORDER BY created_at DESC
+    LIMIT 1
+    """
+    cur = conn.cursor()
+    cur.execute(q, (customer_name,))
+    row = cur.fetchone()
+    return (row[0], row[1]) if row else None
+
 def insert_ticket(ticket_no: str, customer_name: Optional[str], description: str, status: str = "Open") -> None:
     """Insert a new support ticket."""
     conn = get_conn()
