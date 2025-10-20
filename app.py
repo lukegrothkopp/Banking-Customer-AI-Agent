@@ -19,56 +19,51 @@ st.set_page_config(page_title="Banking Support — Multi-Agent", page_icon="💬
 st.title("💬 Banking Customer Support — Multi-Agent")
 st.caption("Classifier → Feedback Handler / Query Handler • Evaluation • Logs • DB Viewer")
 
-# --- Try an Input (wrapped to avoid st.stop nuking the page) ---
+st.markdown("### Try an Input")
 
-def render_try_input():
-    st.markdown("### Try an Input")
+user_text = st.text_area(
+    "Enter your question or feedback",
+    placeholder="e.g., Thanks for resolving my credit card issue.",
+    key="try_text",
+)
 
-    user_text = st.text_area(
-        "Enter your question or feedback",
-        placeholder="e.g., Thanks for resolving my credit card issue.",
-        key="try_text",
+customer_name = st.text_input(
+    "Your name",
+    placeholder="e.g., Alex Chen",
+    key="try_name",
+)
+
+has_ticket_checkbox = st.checkbox(
+    "I already have a 6-digit ticket ID",
+    value=False,
+    key="has_ticket_checkbox",
+)
+
+ticket_id_input = None
+if has_ticket_checkbox:
+    ticket_id_input = st.text_input(
+        "Ticket ID (6 digits)",
+        placeholder="e.g., 650932",
+        key="ticket_id_input",
+        help="If you know your ticket ID, enter it here."
     )
 
-    customer_name = st.text_input(
-        "Your name",
-        placeholder="e.g., Alex Chen",
-        key="try_name",
-    )
+run_btn = st.button("Run", key="btn_try")
 
-    has_ticket_checkbox = st.checkbox(
-        "I already have a 6-digit ticket ID",
-        value=False,
-        key="has_ticket_checkbox",
-    )
-
-    ticket_id_input = None
-    if has_ticket_checkbox:
-        ticket_id_input = st.text_input(
-            "Ticket ID (6 digits)",
-            placeholder="e.g., 650932",
-            key="ticket_id_input",
-            help="If you know your ticket ID, enter it here."
-        )
-
-    run_btn = st.button("Run", key="btn_try")
-
-    if not run_btn:
-        return
-
-    if not (user_text or "").strip():
+if run_btn:
+    if not user_text.strip():
         st.warning("Please enter a question or feedback.")
-        return
+        st.stop()
 
     # Imports (kept local to avoid circulars during module import)
     from agents.classifier import ClassifierAgent
     from agents.feedback import FeedbackHandler
     from agents.query import QueryHandler
-    from core.db import get_conn, find_open_ticket_by_customer, insert_ticket, log_event
+    from core.db import init_db, find_open_ticket_by_customer, insert_ticket, log_event
     from core.utils import generate_ticket_number
 
     conn = get_conn()
-    classifier = ClassifierAgent(use_llm=False)  # wire to your sidebar toggle if you prefer
+    classifier = ClassifierAgent(use_llm=False)  # or wire to your sidebar toggle
     feedback_agent = FeedbackHandler(conn=conn)
     query_agent = QueryHandler(conn=conn)
 
@@ -83,7 +78,6 @@ def render_try_input():
 
     # 2) Normalize a working ticket_id based on the checkbox/name logic
     working_ticket_id = None
-    norm_name = (customer_name or "").strip()
 
     if has_ticket_checkbox and ticket_id_input:
         # User explicitly provided a ticket id; trust this path
@@ -91,79 +85,154 @@ def render_try_input():
     else:
         # User did NOT provide a ticket id.
         # If there is an open ticket under this name, keep using it.
-        existing = find_open_ticket_by_customer(conn, norm_name) if norm_name else None
+        existing = find_open_ticket_by_customer(conn, (customer_name or "").strip()) if (customer_name or "").strip() else None
         if existing:
             working_ticket_id, _existing_status = existing
         else:
             # No open ticket under that name.
             # Only create a ticket if it's NOT purely positive feedback.
             if label in ("negative_feedback", "query"):
+                # If negative feedback, we prefer to create via FeedbackHandler to reuse your logic & logs.
                 if label == "negative_feedback":
-                    # Create via FeedbackHandler to reuse logic & logs
-                    resp = feedback_agent.handle_negative(customer_name=norm_name, description=user_text)
-                    # Re-fetch newest open ticket for that user to get the ID
-                    lookup_new = find_open_ticket_by_customer(conn, norm_name)
+                    # This will create a new ticket and return the empathetic message
+                    resp = feedback_agent.handle_negative(customer_name=customer_name, description=user_text)
+                    # Extract the ticket id we just created (your FeedbackHandler already knows it)
+                    # If your handler doesn't return the id, we can cheaply re-fetch the most recent:
+                    lookup_new = find_open_ticket_by_customer(conn, customer_name)
                     if lookup_new:
                         working_ticket_id = lookup_new[0]
                     st.success(resp)
                     log_event(conn, level="INFO", agent="Orchestrator", event="negative_feedback_new_ticket",
-                              details={"customer_name": norm_name, "ticket_id": working_ticket_id})
-                    return  # ✅ return from function instead of st.stop()
+                              details={"customer_name": customer_name, "ticket_id": working_ticket_id})
+                    st.stop()  # We’ve already responded with the negative-feedback path.
                 else:
                     # label == "query": create a new ticket so we have something to check
                     new_tid = generate_ticket_number()
                     insert_ticket(conn,
                                   ticket_id=new_tid,
-                                  customer_name=norm_name or "Unknown",
+                                  customer_name=customer_name or "Unknown",
                                   description=user_text,
                                   status="Open")
                     working_ticket_id = new_tid
                     log_event(conn, level="INFO", agent="Orchestrator", event="query_new_ticket_created",
-                              details={"customer_name": norm_name, "ticket_id": working_ticket_id})
+                              details={"customer_name": customer_name, "ticket_id": working_ticket_id})
 
     # 3) Route to the appropriate downstream agent
     if label == "positive_feedback":
         # Never create a new ticket for purely positive feedback
-        resp = feedback_agent.handle_positive(norm_name or "Customer")
+        resp = feedback_agent.handle_positive(customer_name or "Customer")
         st.success(resp)
         log_event(conn, level="INFO", agent="FeedbackHandler", event="positive_ack",
-                  details={"customer_name": norm_name})
-        return
-
+                  details={"customer_name": customer_name})
     elif label == "negative_feedback":
-        # Either user supplied an existing ticket, or we found one by name.
+        # If we reached here, either:
+        #  - user supplied an existing ticket, or
+        #  - we found an existing open ticket by name.
         if working_ticket_id:
             msg = (
-                f"We apologize for the inconvenience, {(norm_name or 'Customer')}. "
+                f"We apologize for the inconvenience, {customer_name or 'Customer'}. "
                 f"Your existing ticket #{working_ticket_id} is active—our team will follow up shortly."
             )
             st.info(msg)
             log_event(conn, level="INFO", agent="Orchestrator", event="negative_feedback_existing_ticket",
-                      details={"customer_name": norm_name, "ticket_id": working_ticket_id})
-            return
+                      details={"customer_name": customer_name, "ticket_id": working_ticket_id})
         else:
             # Defensive fallback (shouldn’t happen due to earlier negative flow)
-            resp = feedback_agent.handle_negative(customer_name=norm_name, description=user_text)
+            resp = feedback_agent.handle_negative(customer_name=customer_name, description=user_text)
             st.success(resp)
-            return
-
     else:
         # label == "query"
+        # Ensure the QueryHandler sees a ticket id:
         routed_text = user_text
         if working_ticket_id and ("ticket" not in user_text.lower()):
             routed_text = f"{user_text} (ticket {working_ticket_id})"
 
         status_resp = query_agent.handle(routed_text)
-        display_name = norm_name or "Customer"
+        
+        display_name = (customer_name or "").strip() or "Customer"
         status_resp = f"**Hi {display_name},**\n\n{status_resp}"
-
+        
+        # If we created a brand-new ticket for a query, append clarity
         if has_ticket_checkbox is False and working_ticket_id:
             status_resp += f"\n\nA ticket #{working_ticket_id} is now on file for this request."
 
         st.info(status_resp)
         log_event(conn, level="INFO", agent="QueryHandler", event="query_routed",
-                  details={"customer_name": norm_name, "ticket_id": working_ticket_id})
-        return
+                  details={"customer_name": customer_name, "ticket_id": working_ticket_id})
 
-# Call it after you render tabs/evaluation/etc.
-render_try_input()
+# --- Evaluation (QA & Routing Accuracy) ---
+with st.expander("Evaluation (QA & Routing Accuracy)", expanded=False):
+    use_llm_eval = st.checkbox(
+        "Use LLM for classifier during evaluation",
+        value=False,
+        key="eval_use_llm",
+        help="Toggle to compare rule-based vs. LLM classification."
+    )
+    limit_cases = st.number_input(
+        "Limit test cases (optional)", min_value=0, max_value=100, value=0, step=1,
+        help="0 means run all bundled tests."
+    )
+    run_eval = st.button("Run Benchmark", key="btn_eval")
+    if run_eval:
+        from eval.evaluator import run_benchmark
+        import pandas as pd
+
+        correct, total, rows = run_benchmark(
+            use_llm=use_llm_eval,
+            limit=int(limit_cases) if int(limit_cases) > 0 else None
+        )
+        acc = (correct / total) if total else 0.0
+        st.markdown(f"**Accuracy:** {correct}/{total} &nbsp;&nbsp;(**{acc:.0%}**)")
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True)
+
+        # Optional: quick confusion matrix for visibility
+        if not df.empty and "expected" in df and "predicted" in df:
+            cm = pd.crosstab(df["expected"], df["predicted"], dropna=False)
+            st.markdown("**Confusion Matrix (Expected vs. Predicted)**")
+            st.dataframe(cm, use_container_width=True)
+
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# If you have a sidebar toggle elsewhere, define `use_llm` before using it:
+use_llm = st.sidebar.toggle("Use LLM for classification", value=True)
+
+# Sidebar (already above)
+st.sidebar.subheader("Database & Logs")
+if st.sidebar.button("Refresh Tables"):
+    st.rerun()
+
+tickets_tab, logs_tab = st.tabs(["📬 Tickets", "🪵 Logs"])
+conn = get_conn()
+
+with tickets_tab:
+    c1, c2 = st.columns([1, 5])
+    with c1:
+        if st.button("Refresh", key="btn_refresh_tickets"):
+            pass
+    try:
+        tdf = pd.DataFrame(list_tickets(conn, limit=200))
+        if tdf.empty:
+            st.info("No tickets yet.")
+        else:
+            preferred_cols = [c for c in ["created_at","ticket_id","customer_name","status","description"] if c in tdf.columns]
+            st.dataframe(tdf[preferred_cols] if preferred_cols else tdf, use_container_width=True, height=520)
+    except Exception as e:
+        st.error(f"Tickets error: {e}")
+
+with logs_tab:
+    c1, c2 = st.columns([1, 5])
+    with c1:
+        if st.button("Refresh", key="btn_refresh_logs"):
+            pass
+    try:
+        ldf = pd.DataFrame(list_logs(conn, limit=200))
+        if ldf.empty:
+            st.info("No logs yet.")
+        else:
+            preferred_cols = [c for c in ["ts","level","agent","event","details"] if c in ldf.columns]
+            st.dataframe(ldf[preferred_cols] if preferred_cols else ldf, use_container_width=True, height=520)
+    except Exception as e:
+        st.error(f"Logs error: {e}")
+
