@@ -186,7 +186,10 @@ if run_btn:
             routed_text = f"{user_text} (ticket {working_ticket_id})"
 
         status_resp = query_agent.handle(routed_text)
-
+        
+        display_name = (customer_name or "").strip() or "Customer"
+        status_resp = f"**Hi {display_name},**\n\n{status_resp}"
+        
         # If we created a brand-new ticket for a query, append clarity
         if has_ticket_checkbox is False and working_ticket_id:
             status_resp += f"\n\nA ticket #{working_ticket_id} is now on file for this request."
