@@ -5,7 +5,7 @@ import pandas as pd
 from agents.classifier import ClassifierAgent
 from agents.feedback import FeedbackHandler
 from agents.query import QueryHandler
-from core.db import init_db, list_tickets, list_logs
+from core.db import get_conn, find_open_ticket_by_customer, insert_ticket, log_event
 
 # --- Evaluation (QA & Routing Accuracy) ---
 with st.expander("Evaluation (QA & Routing Accuracy)", expanded=False):
@@ -101,7 +101,7 @@ if run_btn:
     from core.db import init_db, find_open_ticket_by_customer, insert_ticket, log_event
     from core.utils import generate_ticket_number
 
-    conn = init_db()
+    conn = get_conn()
     classifier = ClassifierAgent(use_llm=False)  # or wire to your sidebar toggle
     feedback_agent = FeedbackHandler(conn=conn)
     query_agent = QueryHandler(conn=conn)
@@ -124,7 +124,7 @@ if run_btn:
     else:
         # User did NOT provide a ticket id.
         # If there is an open ticket under this name, keep using it.
-        existing = find_open_ticket_by_customer(conn, customer_name) if customer_name.strip() else None
+        existing = find_open_ticket_by_customer(conn, (customer_name or "").strip()) if (customer_name or "").strip() else None
         if existing:
             working_ticket_id, _existing_status = existing
         else:
