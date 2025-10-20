@@ -18,49 +18,6 @@ from core.db import (
 st.set_page_config(page_title="Banking Support — Multi-Agent", page_icon="💬", layout="wide")
 st.title("💬 Banking Customer Support — Multi-Agent")
 st.caption("Classifier → Feedback Handler / Query Handler • Evaluation • Logs • DB Viewer")
-        
-# --- Evaluation (QA & Routing Accuracy) ---
-with st.expander("Evaluation (QA & Routing Accuracy)", expanded=False):
-    use_llm_eval = st.checkbox(
-        "Use LLM for classifier during evaluation",
-        value=False,
-        key="eval_use_llm",
-        help="Toggle to compare rule-based vs. LLM classification."
-    )
-    limit_cases = st.number_input(
-        "Limit test cases (optional)", min_value=0, max_value=100, value=0, step=1,
-        help="0 means run all bundled tests."
-    )
-    run_eval = st.button("Run Benchmark", key="btn_eval")
-    if run_eval:
-        from eval.evaluator import run_benchmark
-        import pandas as pd
-
-        correct, total, rows = run_benchmark(
-            use_llm=use_llm_eval,
-            limit=int(limit_cases) if int(limit_cases) > 0 else None
-        )
-        acc = (correct / total) if total else 0.0
-        st.markdown(f"**Accuracy:** {correct}/{total} &nbsp;&nbsp;(**{acc:.0%}**)")
-        df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True)
-
-        # Optional: quick confusion matrix for visibility
-        if not df.empty and "expected" in df and "predicted" in df:
-            cm = pd.crosstab(df["expected"], df["predicted"], dropna=False)
-            st.markdown("**Confusion Matrix (Expected vs. Predicted)**")
-            st.dataframe(cm, use_container_width=True)
-
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-# If you have a sidebar toggle elsewhere, define `use_llm` before using it:
-use_llm = st.sidebar.toggle("Use LLM for classification", value=True)
-
-# Sidebar (already above)
-st.sidebar.subheader("Database & Logs")
-if st.sidebar.button("Refresh Tables"):
-    st.rerun()
 
 st.markdown("### Try an Input")
 
@@ -202,6 +159,49 @@ if run_btn:
         st.info(status_resp)
         log_event(conn, level="INFO", agent="QueryHandler", event="query_routed",
                   details={"customer_name": customer_name, "ticket_id": working_ticket_id})
+
+# --- Evaluation (QA & Routing Accuracy) ---
+with st.expander("Evaluation (QA & Routing Accuracy)", expanded=False):
+    use_llm_eval = st.checkbox(
+        "Use LLM for classifier during evaluation",
+        value=False,
+        key="eval_use_llm",
+        help="Toggle to compare rule-based vs. LLM classification."
+    )
+    limit_cases = st.number_input(
+        "Limit test cases (optional)", min_value=0, max_value=100, value=0, step=1,
+        help="0 means run all bundled tests."
+    )
+    run_eval = st.button("Run Benchmark", key="btn_eval")
+    if run_eval:
+        from eval.evaluator import run_benchmark
+        import pandas as pd
+
+        correct, total, rows = run_benchmark(
+            use_llm=use_llm_eval,
+            limit=int(limit_cases) if int(limit_cases) > 0 else None
+        )
+        acc = (correct / total) if total else 0.0
+        st.markdown(f"**Accuracy:** {correct}/{total} &nbsp;&nbsp;(**{acc:.0%}**)")
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True)
+
+        # Optional: quick confusion matrix for visibility
+        if not df.empty and "expected" in df and "predicted" in df:
+            cm = pd.crosstab(df["expected"], df["predicted"], dropna=False)
+            st.markdown("**Confusion Matrix (Expected vs. Predicted)**")
+            st.dataframe(cm, use_container_width=True)
+
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# If you have a sidebar toggle elsewhere, define `use_llm` before using it:
+use_llm = st.sidebar.toggle("Use LLM for classification", value=True)
+
+# Sidebar (already above)
+st.sidebar.subheader("Database & Logs")
+if st.sidebar.button("Refresh Tables"):
+    st.rerun()
 
 tickets_tab, logs_tab = st.tabs(["📬 Tickets", "🪵 Logs"])
 conn = get_conn()
