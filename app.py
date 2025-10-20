@@ -40,7 +40,6 @@ with st.expander("Evaluation (QA & Routing Accuracy)", expanded=False):
             st.dataframe(cm, use_container_width=True)
 
 st.set_page_config(page_title="Banking Support — Multi-Agent", page_icon="💬", layout="wide")
-init_db()
 
 if "history" not in st.session_state:
     st.session_state.history = []
