@@ -16,6 +16,8 @@ from core.db import (
 )
 
 st.set_page_config(page_title="Banking Support — Multi-Agent", page_icon="💬", layout="wide")
+st.title("💬 Banking Customer Support — Multi-Agent")
+st.caption("Classifier → Feedback Handler / Query Handler • Evaluation • Logs • DB Viewer")
         
 # --- Evaluation (QA & Routing Accuracy) ---
 with st.expander("Evaluation (QA & Routing Accuracy)", expanded=False):
@@ -52,9 +54,6 @@ with st.expander("Evaluation (QA & Routing Accuracy)", expanded=False):
 if "history" not in st.session_state:
     st.session_state.history = []
 
-st.title("💬 Banking Customer Support — Multi-Agent")
-st.caption("Classifier → Feedback Handler / Query Handler • Evaluation • Logs • DB Viewer")
-
 # If you have a sidebar toggle elsewhere, define `use_llm` before using it:
 use_llm = st.sidebar.toggle("Use LLM for classification", value=True)
 
@@ -62,8 +61,6 @@ use_llm = st.sidebar.toggle("Use LLM for classification", value=True)
 st.sidebar.subheader("Database & Logs")
 if st.sidebar.button("Refresh Tables"):
     st.rerun()
-
-# --- Try an Input (replace/adjust your existing block) ---
 
 st.markdown("### Try an Input")
 
