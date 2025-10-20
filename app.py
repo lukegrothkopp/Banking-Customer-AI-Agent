@@ -53,7 +53,7 @@ run_btn = st.button("Run", key="btn_try")
 if run_btn:
     if not user_text.strip():
         st.warning("Please enter a question or feedback.")
-        st.stop()
+        return
 
     # Imports (kept local to avoid circulars during module import)
     from agents.classifier import ClassifierAgent
