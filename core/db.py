@@ -171,3 +171,59 @@ def find_open_ticket_by_customer(conn: Optional[sqlite3.Connection], customer_na
     )
     row = cur.fetchone()
     return (row["ticket_id"], row["status"]) if row else None
+
+# ---------- Follow-up: ensure tables exist ----------
+
+def _ensure_followup_tables(conn: Optional[sqlite3.Connection]) -> None:
+    conn = _ensure_conn(conn)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ticket_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id TEXT NOT NULL,
+            author TEXT DEFAULT 'customer',
+            note TEXT NOT NULL,
+            ts DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ticket_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            ts DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    conn.commit()
+
+# ---------- Follow-up helpers ----------
+
+def append_ticket_note(conn: Optional[sqlite3.Connection], *, ticket_id: str, note: str, author: str = "customer") -> None:
+    conn = _ensure_conn(conn)
+    _ensure_followup_tables(conn)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO ticket_notes (ticket_id, author, note) VALUES (?, ?, ?)",
+        (ticket_id, author, note),
+    )
+    conn.commit()
+
+def add_ticket_action_flag(conn: Optional[sqlite3.Connection], *, ticket_id: str, action: str) -> None:
+    conn = _ensure_conn(conn)
+    _ensure_followup_tables(conn)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO ticket_actions (ticket_id, action) VALUES (?, ?)",
+        (ticket_id, action),
+    )
+    conn.commit()
+
+def update_ticket_status(conn: Optional[sqlite3.Connection], *, ticket_id: str, status: str) -> None:
+    conn = _ensure_conn(conn)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE support_tickets SET status = ? WHERE ticket_id = ?",
+        (status, ticket_id),
+    )
+    conn.commit()
+
