@@ -33,6 +33,13 @@ with st.form("try_form", clear_on_submit=False):
         placeholder="e.g., Alex Chen",
         key="try_name",
     )
+    
+    phone_input = st.text_input(
+        "Best phone for callback (optional)",
+        placeholder="e.g., (206) 555-0199",
+        key="callback_phone",
+        help="Add a number if you'd like a call-back about this ticket."
+    )
 
     has_ticket_checkbox = st.checkbox(
         "I already have a 6-digit ticket ID",
