@@ -71,6 +71,10 @@ if submitted:
     from core.utils import generate_ticket_number
     import re
     from core.db import append_ticket_note, add_ticket_action_flag
+
+    def _normalize_phone(p: str) -> str:
+        """Keep digits only; tolerant of formats like (206) 555-0199 ext 123."""
+        return re.sub(r"[^\d]", "", p or "")
     
     conn = get_conn()
     classifier = ClassifierAgent(use_llm=False)  # hook to your sidebar toggle if desired
