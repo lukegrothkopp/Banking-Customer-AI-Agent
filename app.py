@@ -69,7 +69,9 @@ if submitted:
     from agents.query import QueryHandler
     from core.db import find_open_ticket_by_customer, insert_ticket, log_event
     from core.utils import generate_ticket_number
-
+    import re
+    from core.db import append_ticket_note, add_ticket_action_flag
+    
     conn = get_conn()
     classifier = ClassifierAgent(use_llm=False)  # hook to your sidebar toggle if desired
     feedback_agent = FeedbackHandler(conn=conn)
@@ -95,6 +97,11 @@ if submitted:
             customer_name=display_name,
             user_text=user_text
         )
+        if (phone_input or "").strip():
+        norm = _normalize_phone(phone_input)
+        if len(norm) >= 10:  # lenient; accepts 10+ digits
+            append_ticket_note(conn, ticket_id=ticket_field, note=f"callback_phone:{norm}", author=display_name)
+            add_ticket_action_flag(conn, ticket_id=ticket_field, action="preferred_phone_updated")
         if err:
             st.warning("We saved your note, but ran into a small issue updating the ticket. Our team has been notified.")
         st.success(msg)
