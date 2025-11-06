@@ -98,10 +98,10 @@ if submitted:
             user_text=user_text
         )
         if (phone_input or "").strip():
-        norm = _normalize_phone(phone_input)
-        if len(norm) >= 10:  # lenient; accepts 10+ digits
-            append_ticket_note(conn, ticket_id=ticket_field, note=f"callback_phone:{norm}", author=display_name)
-            add_ticket_action_flag(conn, ticket_id=ticket_field, action="preferred_phone_updated")
+            norm = _normalize_phone(phone_input)
+            if len(norm) >= 10:  # lenient; accepts 10+ digits
+                append_ticket_note(conn, ticket_id=ticket_field, note=f"callback_phone:{norm}", author=display_name)
+                add_ticket_action_flag(conn, ticket_id=ticket_field, action="preferred_phone_updated")
         if err:
             st.warning("We saved your note, but ran into a small issue updating the ticket. Our team has been notified.")
         st.success(msg)
