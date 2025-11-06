@@ -55,7 +55,6 @@ with st.form("try_form", clear_on_submit=False):
 if submitted:
     if not (user_text or "").strip():
         st.warning("Please enter a question or feedback.")
-        st.stop()
 
     # Local imports to avoid circulars (same style you already use)
     from agents.classifier import ClassifierAgent
@@ -94,7 +93,6 @@ if submitted:
         st.success(msg)
         log_event(conn, level="INFO", agent="Orchestrator", event="followup_handled",
                   details={"customer_name": display_name, "ticket_id": ticket_field, "label": label})
-        st.stop()
 
     # 3) No ticket id provided → reuse or create a working ticket id
     working_ticket_id = None
@@ -115,7 +113,6 @@ if submitted:
                 st.success(resp)
                 log_event(conn, level="INFO", agent="Orchestrator", event="negative_feedback_new_ticket",
                           details={"customer_name": customer_name, "ticket_id": working_ticket_id})
-                st.stop()
             else:
                 # label == "query": create a new ticket for tracking
                 new_tid = generate_ticket_number()
